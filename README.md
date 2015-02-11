@@ -1,5 +1,5 @@
 # CPP-Console-Game
-A quick console game that my instructor and I wrote.
+A quick console game that I wrote.
 
 Play the game by cloning the project and opening the file in Final Product.
 
