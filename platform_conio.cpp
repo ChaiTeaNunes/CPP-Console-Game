@@ -1,219 +1,319 @@
-// <.h>
+#ifndef __PLATFORM_CONIO_H
+#define __PLATFORM_CONIO_H
+/*
+ utility functions for the command-line console, usable in both Windows and Linux/Unix
+ author: mvaganov@hotmail.com
+ license: MIT (http://opensource.org/licenses/MIT). TL;DR - this is free software, I won't fix it for you!
+ */
+
 /** move the cursor to the given location in the console */
-void platform_move(int row, int col);
-/** true if a key is pressed */
-bool platform_kbhit();
+void platform_move(long row, long col);
+/** true (non-zero) if a key is pressed */
+long platform_kbhit();
 /** return what key is currently pressed as a character, or -1 if not pressed. special keys are different on windows/linux */
-int platform_getchar();
+long platform_getchar();
 /** set the color of the command line cursor. linux gets more colors than windows. ignore negative values (use current color) */
-void platform_setColor(int foreground, int background);
+void platform_setColor(long foreground, long background);
 /** pause the thread for the given number of milliseconds */
-void platform_sleep(int ms);
+void platform_sleep(long ms);
 /** how many milliseconds since first use of this API */
 long long platform_upTimeMS();
+/** wait for any key to be pressed (thread blocking call) */
+inline void platform_waitForAnyKey() { while (!platform_kbhit()) { platform_sleep(1); } }
 
-#ifndef PLATFORM_KEY
-#define PLATFORM_KEY
+/*
+ // example console application using this library:
+ #include "platform_conio.h"
+ #include <string.h>         // for strlen
+ 
+ /// fills a rectangle in the console with the given character
+ void fillRect(int row, int col, int width, int height, char character) {
+	for(int y = row; y < row+height; y++) {
+ platform_move(y, col);
+ for(int x = col; x < col+width; x++) {
+ putchar(character);
+ }
+	}
+ }
+ 
+ int main(int argc, char * argv[])
+ {
+	int userInput;
+	const int frameDelay = 100; // how many milliseconds for each frame of animation
+	long long now, whenToStopWaiting; // timing variables
+ 
+	// character animation \ - / | \ - / | \ - / | \ - / |
+	const char * animation = "\\-/|";
+	int numframes = strlen(animation);
+	int frameIndex = 0;
+ 
+	// color shifting for blinking messate
+	int colors[] = { 8, 7, 15, 7 };
+	int numColors = sizeof(colors) / sizeof(colors[0]);
+	int colorIndex = 0;
+	do
+	{
+ // animation
+ platform_setColor(7, 0);
+ platform_move(3, 10);
+ putchar(animation[frameIndex++]);
+ frameIndex %= numframes;
+ 
+ // blinking message
+ platform_move(3, 12);
+ platform_setColor(colors[colorIndex++], 0);
+ printf("Press \'a\' to continue ");
+ colorIndex %= numColors;
+ 
+ fflush(stdout); // makes sure that whatever was printed will show up in the console
+ 
+ // wait the specified time, or until there is a keyboard hit (interruptable throttle code)
+ now = platform_upTimeMS();
+ whenToStopWaiting = now + frameDelay;
+ while (platform_upTimeMS() < whenToStopWaiting && !platform_kbhit()) { platform_sleep(1); }
+ 
+ userInput = platform_getchar(); // platform_getchar() returns -1 if no key is pressed
+	} while (userInput != 'a');
+	// prep to make the console look more usable after the program is done
+	platform_setColor(-1, -1);    // reset colors to original
+	fillRect(0, 0, 80, 10, ' ');  // clear the top 10 lines (80 columns per line)
+	platform_move(0,0);           // move the cursor back to back to the start
+	return 0;
+ }
+ */
+
+#include <stdio.h>		// printf and putchar
+
 #ifdef _WIN32
+// how to do console utility stuff for Windows
+
+// escape sequence for arrow keys
 #define PLATFORM_KEY_UP 'H\340'
 #define PLATFORM_KEY_LEFT 'K\340'
 #define PLATFORM_KEY_RIGHT 'M\340'
 #define PLATFORM_KEY_DOWN 'P\340'
-#else
-#define PLATFORM_KEY_UP 'A[\033'
-#define PLATFORM_KEY_DOWN 'B[\033'
-#define PLATFORM_KEY_RIGHT 'C[\033'
-#define PLATFORM_KEY_LEFT 'D[\033'
-#endif
-#endif
-// </.h>
 
-#include <stdio.h>
-
-#ifdef _WIN32
+#define NOMINMAX // keeps Windows from defining "min" and "max"
 #include <windows.h>	// move cursor, change color, sleep
 #include <conio.h>		// non-blocking input
 #include <time.h>		// clock()
 
-HANDLE __WINDOWS_CLI = 0;
-/** keep track of the old terminal settings */
-WORD oldAttributes;
-
-void release()
-{
-    platform_setColor(7, 0);
-    __WINDOWS_CLI = 0;
-    putchar('\n');
+inline HANDLE * __stdOutputHandle() {
+    static HANDLE g_h = 0;
+    return &g_h;
 }
 
-void init()
+/** keep track of the old terminal settings */
+inline WORD * __oldAttributes() {
+    static WORD oldAttributes;
+    return &oldAttributes;
+}
+
+inline void __platform_release()
 {
-    if (__WINDOWS_CLI == NULL) {
-        __WINDOWS_CLI = GetStdHandle(STD_OUTPUT_HANDLE);
-        CONSOLE_SCREEN_BUFFER_INFO lpConsoleScreenBufferInfo;
-        GetConsoleScreenBufferInfo(__WINDOWS_CLI, &lpConsoleScreenBufferInfo);
-        oldAttributes = lpConsoleScreenBufferInfo.wAttributes;
-        atexit(release);
+    if (*__stdOutputHandle() != 0) {
+        platform_setColor(*__oldAttributes() & 0xf, *__oldAttributes() & 0xf0);
+        *__stdOutputHandle() = 0;
     }
 }
 
-void platform_move(int row, int col)
+inline void __platform_init()
 {
-    COORD p = { (short)col, (short)row };
-    init();
-    SetConsoleCursorPosition(__WINDOWS_CLI, p);
+    if (*__stdOutputHandle() == 0) {
+        *__stdOutputHandle() = GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO lpConsoleScreenBufferInfo;
+        GetConsoleScreenBufferInfo(*__stdOutputHandle(), &lpConsoleScreenBufferInfo);
+        *__oldAttributes() = lpConsoleScreenBufferInfo.wAttributes;
+        atexit(__platform_release);
+    }
 }
 
-bool platform_kbhit()
+inline void platform_move(long row, long col)
 {
-    init();
+    if (col < 0) col = 0;
+    if (row < 0) row = 0;
+    COORD p = { (short)col, (short)row };
+    __platform_init();
+    SetConsoleCursorPosition(*__stdOutputHandle(), p);
+}
+
+inline long platform_kbhit()
+{
+    __platform_init();
     return _kbhit() != 0;
 }
 
-int platform_getchar()
+inline long platform_getchar()
 {
-    int input;
+    long input;
     if (!platform_kbhit()) return -1;
     input = _getch();
     switch ((char)input){
         case '\0': case '\340':
             if (_kbhit()) {
-                int nextByte = _getch();
+                long nextByte = _getch();
                 input |= (nextByte & 0xff) << 8;
             }
     }
     return input;
 }
 
-void platform_setColor(int foreground, int background)
+inline void platform_setColor(long foreground, long background)
 {
-    init();
-    if (foreground < 0){ foreground = oldAttributes & 0xf; }
-    if (background < 0){ background = (oldAttributes & 0xf0) >> 4; }
-    SetConsoleTextAttribute(__WINDOWS_CLI, (foreground & 0xf) | ((background & 0xf) << 4));
+    __platform_init();
+    if (foreground < 0){ foreground = (*__oldAttributes()) & 0xf; }
+    if (background < 0){ background = (*__oldAttributes() & 0xf0) >> 4; }
+    SetConsoleTextAttribute(*__stdOutputHandle(), (foreground & 0xf) | ((background & 0xf) << 4));
 }
 
-void platform_sleep(int ms)
+inline void platform_sleep(long ms)
 {
     Sleep(ms);
 }
 
-long long platform_upTimeMS()
+inline long long platform_upTimeMS()
 {
     return clock();
 }
 
-#else
+#else // #ifdef _WIN32
+// how to do console utility stuff for *NIX
+
+// escape sequence for arrow keys
+#define PLATFORM_KEY_UP 'A[\033'
+#define PLATFORM_KEY_DOWN 'B[\033'
+#define PLATFORM_KEY_RIGHT 'C[\033'
+#define PLATFORM_KEY_LEFT 'D[\033'
+
 #include <unistd.h>		// sleep
 #include <sys/select.h>	// select, fd_set (for raw, low-level access to input)
 #include <sys/time.h>	// for wall-clock timer (as opposed to clock cycle timer)
 #include <sys/ioctl.h>	// ioctl
 #include <termios.h>	// terminal i/o settings
-#include <stdlib.h>
+#include <stdlib.h>		// atexit
 
-// using ANSI console features to control color and cursor position by default.
+// using ANSI TTY console features to control color and cursor position by default.
 // http://en.wikipedia.org/wiki/ANSI_escape_code#graphics
 
-// experimented with ncurses. the TTY ANSI console is plenty powerful already...
-// http://tldp.org/HOWTO/NCURSES-Programming-HOWTO/index.html
-
 /** keep track of the old terminal settings */
-termios oldTerminalIOSettings;
-/** Linux keeps track of time this way. clock() returns CPU cycles, not time. */
-timeval g_startTime = { 0, 0 };
-/** how long to wait while checking kbhit */
-timeval g_tv = { 0, 0 };
-/** input check during kbhit */
-fd_set g_fds;
-
-void release()
-{
-    tcsetattr(STDIN_FILENO, TCSANOW, &oldTerminalIOSettings);
-    platform_setColor(7, 0);
-    putchar('\n');
+inline termios * __oldTerminalIOSettings() {
+    static termios oldTerminalIOSettings;
+    return &oldTerminalIOSettings;
 }
 
-void init()
+inline long * __initialized() {
+    static long initted = 0;
+    return &initted;
+}
+
+/** Linux keeps track of time this way. clock() returns CPU cycles, not time. */
+inline timeval * __g_startTime() {
+    static timeval g_startTime = { 0, 0 };
+    return &g_startTime;
+}
+
+/** input check during kbhit */
+inline fd_set * __g_fds() {
+    static fd_set g_fds;
+    return &g_fds;
+}
+
+inline void __platform_release()
 {
-    if (g_startTime.tv_sec == 0) {
-        // make getch read right at the key press, without echoing
-        tcgetattr(STDIN_FILENO, &oldTerminalIOSettings);
-        termios currentTerminalIOSettings = oldTerminalIOSettings;
-        currentTerminalIOSettings.c_lflag &= ~(ICANON | ECHO);	// don't wait for enter, don't print
-        tcsetattr(STDIN_FILENO, TCSANOW, &currentTerminalIOSettings);
-        FD_ZERO(&g_fds);	// initialize the struct that checks for input
-        gettimeofday(&g_startTime, NULL);	// start the timer
-        atexit(release);
+    if (*__initialized() != 0) {
+        tcsetattr(STDIN_FILENO, TCSANOW, __oldTerminalIOSettings());
+        platform_setColor(-1, -1); // set to not-intense-white
+        *__initialized() = 0;
     }
 }
 
-bool platform_kbhit()
+inline void __platform__init()
 {
-    int result;
-    init();
-    // check the hardware input stream if there is data waiting
-    FD_SET(STDIN_FILENO, &g_fds);
-    result = select(STDIN_FILENO + 1, &g_fds, NULL, NULL, &g_tv);
-    // specifically, check for data to be read
-    return result && (FD_ISSET(0, &g_fds));
+    if (*__initialized() == 0) {
+        *__initialized() = 1;
+        // make getch read right at the key press, without echoing
+        tcgetattr(STDIN_FILENO, __oldTerminalIOSettings());
+        termios currentTerminalIOSettings = *__oldTerminalIOSettings();
+        currentTerminalIOSettings.c_lflag &= ~(ICANON | ECHO);	// don't wait for enter, don't print
+        tcsetattr(STDIN_FILENO, TCSANOW, &currentTerminalIOSettings);
+        FD_ZERO(__g_fds());	// initialize the struct that checks for input
+        gettimeofday(__g_startTime(), NULL);	// start the timer
+        atexit(__platform_release);
+    }
 }
 
-int platform_getchar()
+inline long platform_kbhit()
 {
-    int buffer;
-    init();
-    read(STDIN_FILENO, (char *)&buffer, sizeof(buffer));
+    static timeval g_tv_zero = { 0, 0 };
+    long result;
+    __platform__init();
+    // check the hardware input stream if there is data waiting
+    FD_SET(STDIN_FILENO, __g_fds());
+    result = select(STDIN_FILENO + 1, __g_fds(), NULL, NULL, &g_tv_zero);
+    // specifically, check for data to be read
+    return result && (FD_ISSET(0, __g_fds()));
+}
+
+inline long platform_getchar() // if multiple keys are pressed simultaneously, 4-bytes worth of entered keys will output
+{
+    long buffer = 0;
+    if (!platform_kbhit()) return -1;
+    read(STDIN_FILENO, (char *)&buffer, 1); // read only one byte
+    switch (buffer) {
+        case '\033': // if it is an escape sequence, read some more...
+            read(STDIN_FILENO, ((char *)&buffer) + 1, 1);
+            switch (((char *)&buffer)[1]) {
+                case '[': // possibly arrow keys
+                    read(STDIN_FILENO, ((char *)&buffer) + 2, 1);
+                    break;
+            }
+            break;
+    }
     return buffer;
 }
 
-void platform_move(int row, int col)
+inline void platform_move(long row, long col)
 {
-    init();
-    printf("\033[%d;%df", row + 1, col + 1);	// move cursor, without ncurses
+    if (col < 0) col = 0;
+    if (row < 0) row = 0;
+    __platform__init();
+    printf("\033[%d;%df", (int)row + 1, (int)col + 1);	// move cursor, without ncurses
 }
 
-
-void platform_setColor(int foreground, int background)
+inline void platform_setColor(long foreground, long background)
 {
-    init();
+    __platform__init();
     // colorRGB and colorGRAY usable for TTY (unix/linux) expanded console color
     if (foreground >= 0)
-        printf("\033[38;5;%dm", foreground);
+        printf("\033[38;5;%dm", (int)foreground);
     else
         printf("\033[39m");// default foreground color
     if (background >= 0)
-        printf("\033[48;5;%dm", background);
+        printf("\033[48;5;%dm", (int)background);
     else
         printf("\033[49m");// default background color
 }
 
-void platform_sleep(int a_ms)
+inline void platform_sleep(long a_ms)
 {
-    static timeval endTime, startTime;
-    static time_t seconds, useconds, ms;
-    init();
-    gettimeofday(&startTime, NULL);
-    ms = 0;
-    while (ms < a_ms)
-    {
-        usleep(128);	// sleeps "microseconds worth" of CPU-instructions
-        gettimeofday(&endTime, NULL);					// but we must calculate
-        seconds = endTime.tv_sec - startTime.tv_sec;	// how much time was
-        useconds = endTime.tv_usec - startTime.tv_usec;	// really spent
-        ms = seconds * 1000 + useconds / 1000;
-    }
+    long seconds = a_ms / 1000;
+    a_ms -= seconds * 1000;
+    timespec time = { seconds, a_ms * 1000000 }; // 1 millisecond = 1,000,000 Nanoseconds
+    nanosleep(&time, NULL);
 }
 
-long long platform_upTimeMS()
+inline long long platform_upTimeMS()
 {
     static timeval now;
     static time_t seconds, useconds, ms;
-    init();
+    __platform__init();
     gettimeofday(&now, NULL);
-    seconds = now.tv_sec - g_startTime.tv_sec;
-    useconds = now.tv_usec - g_startTime.tv_usec;
+    seconds = now.tv_sec - __g_startTime()->tv_sec;
+    useconds = now.tv_usec - __g_startTime()->tv_usec;
     ms = seconds * 1000 + useconds / 1000;
     return ms;
 }
 
-#endif
+#endif // #ifdef _WIN32 #else
+
+#endif // __PLATFORM_CONIO_H
