@@ -1,5 +1,5 @@
 //
-//  h
+//  enemy.h
 //  Console Game
 //
 //  Created by Lax26 on 1/22/15.
@@ -14,13 +14,8 @@
 class Enemy : public Entity {
 public:
     int timer, moveDelay;
-    /** pointer to the entity that is being followed */
     Entity * followed;
-    
-    /** automatically calls the Entity (parent class) default constructor */
     Enemy() : followed(0), timer(0), moveDelay(500) {}
-    
-    /** explicitly calls the Entity (parent class) constructor */
     Enemy(Vector2 position, char icon, Entity * player, int delay)
         : Entity(position, icon), followed(player), timer(0), moveDelay(delay) {}
     

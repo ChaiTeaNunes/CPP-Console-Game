@@ -21,27 +21,28 @@ public:
 
 public:
     Entity player;
-    static const int ENEMY_COUNT = 5;
-    Enemy enemies[ENEMY_COUNT];
+    Entity end;
+    static const int data = 5;
+    Enemy enemies[data];
     Vector2 size;
     AABB playArea;
     char input;
     bool running;
-    Game(char * map, Vector2 size) : player(Vector2(4,5), '@'), size(size), running(true), playArea(Vector2(0,0), size), map(map)
+    Game(char * map, Vector2 size) : player(Vector2(4,5), '@'), end(Vector2(48,13), '?'), size(size), running(true), playArea(Vector2(0,0), size), map(map)
     {
-        for (int i = 0; i < ENEMY_COUNT; ++i) {
-            enemies[i] = Enemy(Vector2(i * 3 + 1, i * 2 + 1), '!', &player, 200 + (i * 200));
+        for (int i = 0; i < data; ++i) {
+            enemies[i] = Enemy(Vector2(i * 4 +  10, 10), '!', &player, 200 + (i * 200));
         }
     }
     
     int mapIndex(int row, int col) { return row * size.x + col; }
     
     void draw () {
-        platform_move(0,0);
+        platform_move(0, 0);
         for (int row = 0; row < size.y; ++row) {
             for (int col = 0; col < size.x; ++col) {
                 bool enemyHere = false;
-                for (int i = 0; i < ENEMY_COUNT; i++) {
+                for (int i = 0; i < data; i++) {
                     enemyHere = enemies[i].position.equals(col, row);
                     if (enemyHere) {
                         putchar(enemies[i].icon);
@@ -55,6 +56,9 @@ public:
                         putchar(map[mapIndex(row, col) ]);
                     }
                 }
+                if (end.position.equals(col, row)) {
+                    putchar(end.icon);
+                }
             }
             putchar('\n');
         }
@@ -64,12 +68,21 @@ public:
     bool emptyLocation(int row, int col, int ignore) {
         if (map[mapIndex(row, col)] == ' ') {
             bool filled = false;
-            for (int i = 0; i < ENEMY_COUNT; i++) {
+            for (int i = 0; i < data; i++) {
                 if (i != ignore
                     && enemies[i].position.x == col
                     && enemies[i].position.y == row) {
                     filled = true;
                     break;
+                }
+                if (enemies[i].position.x == player.position.x && enemies[i].position.y == player.position.y){
+                    running = false;
+                }
+                if (player.position.x == 49 && player.position.y == 13){
+                    std::cout << "Congratulations! You got to the end of the map!" << std::endl;
+                    player.icon = ' ';
+                    player.position.x = 4;
+                    running = false;
                 }
             }
             return !filled;
@@ -94,12 +107,11 @@ public:
             player.position = oldpp;
         }
         
-        for (int i = 0; i < ENEMY_COUNT; i++){
+        for (int i = 0; i < data; i++){
             Vector2 oldep = enemies[i].position;
             enemies[i].Update(msPassed);
             if (!playArea.Contains(enemies[i].position)
                 || !emptyLocation(enemies[i].position.y, enemies[i].position.x, i)) {
-                //|| map[mapIndex(enemies[i].position.y, enemies[i].position.x)] != ' ') {
                 enemies[i].position = oldep;
             }
         }
@@ -113,12 +125,6 @@ public:
         } else {
             input = -1;
             
-//            if (e1.position.x == player.position.x && e1.position.y == player.position.y) {
-//                running = false;
-//            }
-//            if (e2.position.x == player.position.x && e2.position.y == player.position.y) {
-//                running = false;
-//            }
         }
     }
     
